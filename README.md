@@ -52,7 +52,28 @@ The curves show the main run (hidden width 64). The training loss and the valida
 
 ## Experiments
 
-(to be written)
+The main run is hidden width 64, learning rate 0.001, batch size 64 and 200 epochs. Each other run changes one setting and keeps the rest the same. All four runs use seed 2026. The curves of each run are saved in `reports/`.
+
+| Run | Change from main | Best epoch | Best validation MAE | Final training loss | Final validation loss |
+|---|---|---|---|---|---|
+| main | none | 198 | 2.605 | 10.447 | 16.721 |
+| lr_too_small | learning rate 0.00001 | 200 | 9.135 | 179.529 | 180.930 |
+| lr_too_large | learning rate 0.1 | 35 | 2.707 | 15.955 | 17.526 |
+| wide_network | hidden width 512 | 60 | 2.427 | 6.433 | 15.972 |
+
+**main (fine, with a small gap at the end).** Both losses fall together for about the first 100 epochs, and the validation MAE reaches 2.6, far below the baselines. After about epoch 125 the validation loss stops improving and becomes noisy, while the training loss keeps falling, so the gap (10.4 against 16.7) is a mild sign of overfitting. The network is not underfitting.
+
+![Learning curves of the lr_too_small run](reports/curves_lr_too_small.png)
+
+**lr_too_small (underfitting).** With a learning rate of 0.00001 the steps are tiny, so after 200 epochs the training loss (179.5) and the validation loss (180.9) are still close to where a network starts, and the validation MAE of 9.1 is no better than the linear baseline (9.03). The two losses stay together and are both high, which is the sign of underfitting. The best epoch is the last one, so the network was still improving and simply ran out of epochs.
+
+![Learning curves of the lr_too_large run](reports/curves_lr_too_large.png)
+
+**lr_too_large (unstable).** With a learning rate of 0.1 the network still learns, but the steps are too big. It reaches its best validation MAE (2.707) at epoch 35 and then does not improve. Its final training loss (16.0) is higher than the main run's (10.4), although it trained on the same rows for the same number of epochs, which fits steps that overshoot the minimum and keep bouncing around it. The curves are noisier than the main run's, and the result is worse.
+
+![Learning curves of the wide_network run](reports/curves_wide_network.png)
+
+**wide_network (overfitting, then rescued by early stopping).** A hidden width of 512 is far more than 3,600 training rows need. The training loss keeps falling (6.4 at epoch 200) while the validation loss reaches its lowest point at epoch 60 and then turns upward (16.0 at epoch 200). The gap between the two curves widening is the sign of overfitting. Because the loop puts back the weights of the best epoch, the final network is the epoch-60 one, and it has the lowest validation MAE of all four runs (2.427). That is why I chose it as the final network.
 
 ## Limitations
 
