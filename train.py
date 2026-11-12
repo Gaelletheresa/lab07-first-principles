@@ -1,6 +1,9 @@
 import copy
+from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -8,6 +11,9 @@ from torch import nn
 
 from model import RentalNet
 from prepare import make_loaders
+
+REPORTS = Path("reports")
+SEED = 2026
 
 
 def run_epoch(model, loader, loss_fn, optimizer=None):
@@ -94,8 +100,25 @@ def baseline_metrics(train_loader, val_loader, test_loader):
     return results
 
 
+def plot_curves(history, best_epoch, path, title):
+    """Plot training and validation loss for every epoch, and mark the best."""
+    frame = pd.DataFrame(history)
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    ax.plot(frame["epoch"], frame["train_loss"], label="training loss")
+    ax.plot(frame["epoch"], frame["val_loss"], label="validation loss")
+    ax.axvline(best_epoch, color="gray", linestyle="--", label=f"best epoch {best_epoch}")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss (MSE)")
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 if __name__ == "__main__":
-    torch.manual_seed(2026)
+    torch.manual_seed(SEED)
+    REPORTS.mkdir(exist_ok=True)
     train_loader, val_loader, test_loader = make_loaders()
 
     baselines = baseline_metrics(train_loader, val_loader, test_loader)
@@ -105,17 +128,23 @@ if __name__ == "__main__":
             f"val MSE {scores['val_mse']:8.3f}"
         )
 
-    model = RentalNet()
+    model = RentalNet(hidden=64)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     history, best_epoch = train_model(
-        model, train_loader, val_loader, loss_fn, optimizer, epochs=30
+        model, train_loader, val_loader, loss_fn, optimizer, epochs=200
     )
     for row in history:
-        if row["epoch"] % 10 == 0:
+        if row["epoch"] % 25 == 0:
             print(
                 f"epoch {row['epoch']:3d}  train {row['train_loss']:8.3f}  "
                 f"val {row['val_loss']:8.3f}  val MAE {row['val_mae']:6.3f}"
             )
     print("best epoch:", best_epoch)
+    print("best val MAE:", round(history[best_epoch - 1]["val_mae"], 3))
+
+    pd.DataFrame(history).to_csv(REPORTS / "history.csv", index=False)
+    plot_curves(
+        history, best_epoch, REPORTS / "learning_curves.png", "Main run (hidden 64)"
+    )
