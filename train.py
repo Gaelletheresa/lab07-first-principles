@@ -1,6 +1,9 @@
 import copy
 
+import numpy as np
 import torch
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch import nn
 
 from model import RentalNet
@@ -67,9 +70,40 @@ def train_model(model, train_loader, val_loader, loss_fn, optimizer, epochs):
     return history, best_epoch
 
 
+def arrays_from(loader):
+    """Get the prepared features and targets back out of a loader as arrays."""
+    return loader.dataset.features.numpy(), loader.dataset.targets.numpy()
+
+
+def baseline_metrics(train_loader, val_loader, test_loader):
+    """Score the training-mean baseline and linear regression (MAE and MSE)."""
+    x_train, y_train = arrays_from(train_loader)
+    mean_value = float(y_train.mean())
+    linear = LinearRegression().fit(x_train, y_train)
+
+    results = {"train_mean": {}, "linear": {}}
+    for split, loader in [("val", val_loader), ("test", test_loader)]:
+        x, y = arrays_from(loader)
+        predictions = {
+            "train_mean": np.full_like(y, mean_value),
+            "linear": linear.predict(x),
+        }
+        for name, predicted in predictions.items():
+            results[name][f"{split}_mae"] = float(mean_absolute_error(y, predicted))
+            results[name][f"{split}_mse"] = float(mean_squared_error(y, predicted))
+    return results
+
+
 if __name__ == "__main__":
     torch.manual_seed(2026)
-    train_loader, val_loader, _ = make_loaders()
+    train_loader, val_loader, test_loader = make_loaders()
+
+    baselines = baseline_metrics(train_loader, val_loader, test_loader)
+    for name, scores in baselines.items():
+        print(
+            f"{name:11s} val MAE {scores['val_mae']:6.3f}  "
+            f"val MSE {scores['val_mse']:8.3f}"
+        )
 
     model = RentalNet()
     loss_fn = nn.MSELoss()
@@ -79,8 +113,9 @@ if __name__ == "__main__":
         model, train_loader, val_loader, loss_fn, optimizer, epochs=30
     )
     for row in history:
-        print(
-            f"epoch {row['epoch']:3d}  train {row['train_loss']:8.3f}  "
-            f"val {row['val_loss']:8.3f}  val MAE {row['val_mae']:6.3f}"
-        )
+        if row["epoch"] % 10 == 0:
+            print(
+                f"epoch {row['epoch']:3d}  train {row['train_loss']:8.3f}  "
+                f"val {row['val_loss']:8.3f}  val MAE {row['val_mae']:6.3f}"
+            )
     print("best epoch:", best_epoch)
