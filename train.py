@@ -15,6 +15,19 @@ from prepare import make_loaders
 REPORTS = Path("reports")
 SEED = 2026
 
+MAIN_RUN = {
+    "name": "main",
+    "hidden": 64,
+    "lr": 0.001,
+    "batch_size": 64,
+    "epochs": 200,
+}
+EXPERIMENTS = [
+    {**MAIN_RUN, "name": "lr_too_small", "lr": 0.00001},
+    {**MAIN_RUN, "name": "lr_too_large", "lr": 0.1},
+    {**MAIN_RUN, "name": "wide_network", "hidden": 512},
+]
+
 
 def run_epoch(model, loader, loss_fn, optimizer=None):
     """Run one epoch. Trains if given an optimizer, otherwise only measures.
@@ -100,15 +113,48 @@ def baseline_metrics(train_loader, val_loader, test_loader):
     return results
 
 
+def run_experiment(config):
+    """Train one network from the settings in `config`. Seeded, so repeatable."""
+    torch.manual_seed(SEED)
+    train_loader, val_loader, _ = make_loaders(batch_size=config["batch_size"])
+    model = RentalNet(hidden=config["hidden"])
+    loss_fn = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+    history, best_epoch = train_model(
+        model, train_loader, val_loader, loss_fn, optimizer, config["epochs"]
+    )
+    return model, history, best_epoch
+
+
+def summarize(config, history, best_epoch):
+    """One row of the experiments table."""
+    best = history[best_epoch - 1]
+    last = history[-1]
+    return {
+        "run": config["name"],
+        "hidden": config["hidden"],
+        "lr": config["lr"],
+        "batch_size": config["batch_size"],
+        "epochs": config["epochs"],
+        "best_epoch": best_epoch,
+        "best_val_mae": round(best["val_mae"], 3),
+        "final_train_loss": round(last["train_loss"], 3),
+        "final_val_loss": round(last["val_loss"], 3),
+    }
+
+
 def plot_curves(history, best_epoch, path, title):
     """Plot training and validation loss for every epoch, and mark the best."""
     frame = pd.DataFrame(history)
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(frame["epoch"], frame["train_loss"], label="training loss")
     ax.plot(frame["epoch"], frame["val_loss"], label="validation loss")
-    ax.axvline(best_epoch, color="gray", linestyle="--", label=f"best epoch {best_epoch}")
+    ax.axvline(
+        best_epoch, color="gray", linestyle="--", label=f"best epoch {best_epoch}"
+    )
+    ax.set_yscale("log")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss (MSE)")
+    ax.set_ylabel("Loss (MSE, log scale)")
     ax.set_title(title)
     ax.legend()
     fig.tight_layout()
@@ -117,7 +163,6 @@ def plot_curves(history, best_epoch, path, title):
 
 
 if __name__ == "__main__":
-    torch.manual_seed(SEED)
     REPORTS.mkdir(exist_ok=True)
     train_loader, val_loader, test_loader = make_loaders()
 
@@ -128,23 +173,23 @@ if __name__ == "__main__":
             f"val MSE {scores['val_mse']:8.3f}"
         )
 
-    model = RentalNet(hidden=64)
-    loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    rows = []
+    for config in [MAIN_RUN, *EXPERIMENTS]:
+        model, history, best_epoch = run_experiment(config)
+        summary = summarize(config, history, best_epoch)
+        rows.append(summary)
+        print(
+            f"{summary['run']:13s} best epoch {summary['best_epoch']:3d}  "
+            f"best val MAE {summary['best_val_mae']:7.3f}  "
+            f"final train {summary['final_train_loss']:9.3f}  "
+            f"final val {summary['final_val_loss']:9.3f}"
+        )
 
-    history, best_epoch = train_model(
-        model, train_loader, val_loader, loss_fn, optimizer, epochs=200
-    )
-    for row in history:
-        if row["epoch"] % 25 == 0:
-            print(
-                f"epoch {row['epoch']:3d}  train {row['train_loss']:8.3f}  "
-                f"val {row['val_loss']:8.3f}  val MAE {row['val_mae']:6.3f}"
-            )
-    print("best epoch:", best_epoch)
-    print("best val MAE:", round(history[best_epoch - 1]["val_mae"], 3))
+        if config["name"] == "main":
+            pd.DataFrame(history).to_csv(REPORTS / "history.csv", index=False)
+            curve_path = REPORTS / "learning_curves.png"
+        else:
+            curve_path = REPORTS / f"curves_{config['name']}.png"
+        plot_curves(history, best_epoch, curve_path, f"Run: {config['name']}")
 
-    pd.DataFrame(history).to_csv(REPORTS / "history.csv", index=False)
-    plot_curves(
-        history, best_epoch, REPORTS / "learning_curves.png", "Main run (hidden 64)"
-    )
+    pd.DataFrame(rows).to_csv(REPORTS / "experiments.csv", index=False)
