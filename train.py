@@ -1,3 +1,5 @@
+import copy
+
 import torch
 from torch import nn
 
@@ -35,17 +37,50 @@ def run_epoch(model, loader, loss_fn, optimizer=None):
     return total_loss / total_rows, total_abs_error / total_rows
 
 
+def train_model(model, train_loader, val_loader, loss_fn, optimizer, epochs):
+    """Train for many epochs, log every epoch, restore the best weights.
+
+    Returns (history, best_epoch). The epochs are numbered from 1.
+    """
+    history = []
+    best_val_loss = float("inf")
+    best_epoch = 0
+    best_weights = copy.deepcopy(model.state_dict())
+
+    for epoch in range(1, epochs + 1):
+        train_loss, _ = run_epoch(model, train_loader, loss_fn, optimizer)
+        val_loss, val_mae = run_epoch(model, val_loader, loss_fn)
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_mae": val_mae,
+            }
+        )
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_epoch = epoch
+            best_weights = copy.deepcopy(model.state_dict())
+
+    model.load_state_dict(best_weights)
+    return history, best_epoch
+
+
 if __name__ == "__main__":
     torch.manual_seed(2026)
-    train_loader, _, _ = make_loaders()
-    features, targets = next(iter(train_loader))
-    small_batch = [(features[:32], targets[:32])]
+    train_loader, val_loader, _ = make_loaders()
 
     model = RentalNet()
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    for step in range(300):
-        loss, mae = run_epoch(model, small_batch, loss_fn, optimizer)
-        if step % 50 == 0 or step == 299:
-            print(f"step {step:3d}  loss {loss:8.3f}  mae {mae:6.3f}")
+    history, best_epoch = train_model(
+        model, train_loader, val_loader, loss_fn, optimizer, epochs=30
+    )
+    for row in history:
+        print(
+            f"epoch {row['epoch']:3d}  train {row['train_loss']:8.3f}  "
+            f"val {row['val_loss']:8.3f}  val MAE {row['val_mae']:6.3f}"
+        )
+    print("best epoch:", best_epoch)
