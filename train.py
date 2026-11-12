@@ -1,4 +1,5 @@
 import copy
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -27,6 +28,7 @@ EXPERIMENTS = [
     {**MAIN_RUN, "name": "lr_too_large", "lr": 0.1},
     {**MAIN_RUN, "name": "wide_network", "hidden": 512},
 ]
+FINAL_RUN = "wide_network"
 
 
 def run_epoch(model, loader, loss_fn, optimizer=None):
@@ -174,8 +176,12 @@ if __name__ == "__main__":
         )
 
     rows = []
+    models = {}
+    best_rows = {}
     for config in [MAIN_RUN, *EXPERIMENTS]:
         model, history, best_epoch = run_experiment(config)
+        models[config["name"]] = model
+        best_rows[config["name"]] = history[best_epoch - 1]
         summary = summarize(config, history, best_epoch)
         rows.append(summary)
         print(
@@ -193,3 +199,20 @@ if __name__ == "__main__":
         plot_curves(history, best_epoch, curve_path, f"Run: {config['name']}")
 
     pd.DataFrame(rows).to_csv(REPORTS / "experiments.csv", index=False)
+
+    # The test rows are used once, for the network chosen on the validation rows.
+    test_mse, test_mae = run_epoch(models[FINAL_RUN], test_loader, nn.MSELoss())
+    metrics = {
+        "baselines": baselines,
+        "network": {
+            "run": FINAL_RUN,
+            "val_mae": best_rows[FINAL_RUN]["val_mae"],
+            "val_mse": best_rows[FINAL_RUN]["val_loss"],
+            "test_mae": test_mae,
+            "test_mse": test_mse,
+        },
+    }
+    (REPORTS / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    print(
+        f"final network ({FINAL_RUN})  test MAE {test_mae:.3f}  test MSE {test_mse:.3f}"
+    )

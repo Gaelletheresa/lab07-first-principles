@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 
 N_FEATURES = 8
